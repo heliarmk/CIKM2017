@@ -123,8 +123,8 @@ def read_data(datafile):
         inputs.append(data["input"])
         labels.append(data["label"])
 
-    inputs = np.array(inputs).astype(np.float32).reshape(-1, 15, 101, 101, 4)
-    labels = np.array(labels).astype(np.float32).reshape(-1, 1)
+    inputs = np.array(inputs).reshape(-1, 15, 101, 101, 4)
+    labels = np.array(labels).reshape(-1, 1)
 
     return inputs, labels
 
@@ -151,8 +151,8 @@ def train():
     
     fold_step = int(train_data.shape[0] / fold)
     
-    inputs = tf.placeholder(DTYPE, shape=(None, 15, 101, 101, 4))
-    labels = tf.placeholder(DTYPE, shape=(None, 1))
+    inputs = tf.placeholder(tf.int16, shape=(None, 15, 101, 101, 4))
+    labels = tf.placeholder(tf.int16, shape=(None, 1))
     keepprob = tf.placeholder(DTYPE)
 
     preds = conv3dnet(inputs, keepprob)
