@@ -4,6 +4,7 @@ from __future__ import print_function
 
 import os
 import tensorflow as tf
+import numpy as np
 import joblib
 
 
@@ -20,7 +21,6 @@ def _float_feature(value):
 
 
 def convert_to(data_set, name):
-
     num_examples = len(data_set)
 
     cols = data_set[0]["input"].shape[3]
@@ -44,11 +44,18 @@ def convert_to(data_set, name):
         writer.write(example.SerializeToString())
     writer.close()
 
+
 def main():
     # Get the data.
-    data_set = joblib.load("/mnt/guankai/CIKM/data/CIKM2017_train/train_Imp_3x3.pkl")
-    convert_to(data_set,"train_Imp_3x3")
+    data_set = joblib.load("/mnt/guankai/CIKM/data/CIKM2017_train/train_Imp_3x3_fliped&rotated.pkl")
+    data_set = np.random.permutation(data_set)
+    valid_data_num = 6000 #get 10% data for validation
+    valid_set = data_set[0 : valid_data_num ]
+    train_set = data_set[valid_data_num  : ]
+    convert_to(train_set, "train_Imp_3x3_fliped&rotated")
+    convert_to(valid_set, "valid_Imp_3x3_fliped&rotated")
     return
+
 
 if __name__ == '__main__':
     main()
