@@ -12,13 +12,13 @@ def _bias_variable(name, shape):
     return tf.get_variable(name=name, shape=shape, dtype=DTYPE, initializer=tf.constant_initializer(0.1, dtype=DTYPE),
                            regularizer=tf.contrib.layers.l2_regularizer(1.0))
 
-def conv3dnet(input, keepprob):
+def conv3dnet(input, keepprob, out_class):
     prev_layer = input
 
     in_filters = 4
-    out_class = 1
+    out_class = out_class
     with tf.variable_scope('conv1') as scope:
-        out_filters = 16
+        out_filters = 128
         kernel = _weight_variable('weights', [3, 3, 3, in_filters, out_filters])
         conv = tf.nn.conv3d(prev_layer, kernel, [1, 1, 1, 1, 1], padding='SAME')
         biases = _bias_variable('biases', [out_filters])
@@ -34,7 +34,7 @@ def conv3dnet(input, keepprob):
     prev_layer = norm1
 
     with tf.variable_scope('conv2') as scope:
-        out_filters = 32
+        out_filters = 64
         kernel = _weight_variable('weights', [3, 3, 3, in_filters, out_filters])
         conv = tf.nn.conv3d(prev_layer, kernel, [1, 1, 1, 1, 1], padding='SAME')
         biases = _bias_variable('biases', [out_filters])
@@ -46,9 +46,10 @@ def conv3dnet(input, keepprob):
 
     # normalize prev_layer here
     prev_layer = tf.nn.max_pool3d(prev_layer, ksize=[1, 3, 3, 3, 1], strides=[1, 2, 2, 2, 1], padding='SAME')
+
     with tf.variable_scope('conv3_1') as scope:
         out_filters = 64
-        kernel = _weight_variable('weights', [5, 5, 5, in_filters, out_filters])
+        kernel = _weight_variable('weights', [3, 3, 3, in_filters, out_filters])
         conv = tf.nn.conv3d(prev_layer, kernel, [1, 1, 1, 1, 1], padding='SAME')
         biases = _bias_variable('biases', [out_filters])
         bias = tf.nn.bias_add(conv, biases)
@@ -83,6 +84,7 @@ def conv3dnet(input, keepprob):
         local3 = tf.nn.relu(tf.nn.dropout(tf.matmul(prev_layer_flat, weights) + biases, keepprob), name=scope.name)
 
     prev_layer = local3
+    '''
     with tf.variable_scope('local4') as scope:
         dim = np.prod(prev_layer.get_shape().as_list()[1:])
         prev_layer_flat = tf.reshape(prev_layer, [-1, dim])
@@ -91,6 +93,7 @@ def conv3dnet(input, keepprob):
         local4 = tf.nn.relu(tf.nn.dropout(tf.matmul(prev_layer_flat, weights) + biases, keepprob), name=scope.name)
 
     prev_layer = local4
+    '''
 
     with tf.variable_scope('softmax_linear') as scope:
         dim = np.prod(prev_layer.get_shape().as_list()[1:])

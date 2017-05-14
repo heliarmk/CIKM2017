@@ -23,11 +23,6 @@ def _float_feature(value):
 def convert_to(data_set, name):
     num_examples = len(data_set)
 
-    cols = data_set[0]["input"].shape[3]
-    rows = data_set[0]["input"].shape[2]
-    depth = data_set[0]["input"].shape[0]
-    channel = data_set[0]["input"].shape[1]
-
     filename = os.path.join("/mnt/guankai/CIKM/data/CIKM2017_train/", name + '.tfrecords')
     print('Writing', filename)
     writer = tf.python_io.TFRecordWriter(filename)
@@ -35,10 +30,6 @@ def convert_to(data_set, name):
         image_raw = data_set[index]["input"].tostring()
         label_raw = data_set[index]["label"].item()
         example = tf.train.Example(features=tf.train.Features(feature={
-            'height': _int64_feature(rows),
-            'width': _int64_feature(cols),
-            'depth': _int64_feature(depth),
-            'channel': _int64_feature(channel),
             'label': _float_feature(label_raw),
             'image_raw': _bytes_feature(image_raw)}))
         writer.write(example.SerializeToString())
@@ -47,13 +38,14 @@ def convert_to(data_set, name):
 
 def main():
     # Get the data.
-    data_set = joblib.load("/mnt/guankai/CIKM/data/CIKM2017_train/train_Imp_3x3_fliped&rotated.pkl")
-    data_set = np.random.permutation(data_set)
-    valid_data_num = 6000 #get 10% data for validation
+    data_set = joblib.load("/mnt/guankai/CIKM/data/CIKM2017_train/train_Imp_3x3_resampled.pkl")
+    for i in range(10):
+        data_set = np.random.permutation(data_set)
+    valid_data_num = int(len(data_set) / 10) #get 10% data for validation
     valid_set = data_set[0 : valid_data_num ]
     train_set = data_set[valid_data_num  : ]
-    convert_to(train_set, "train_Imp_3x3_fliped&rotated")
-    convert_to(valid_set, "valid_Imp_3x3_fliped&rotated")
+    convert_to(train_set, "train_Imp_3x3_resampled")
+    convert_to(valid_set, "valid_Imp_3x3_resampled")
     return
 
 
