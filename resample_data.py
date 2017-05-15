@@ -4,7 +4,7 @@ import joblib
 import tensorflow as tf
 import os
 
-def resample():
+def sample():
     trains = joblib.load("../data/CIKM2017_train/train_Imp_3x3.pkl")
     labels = []
     for i in trains:
@@ -28,12 +28,13 @@ def resample():
     
     for key in hist_dict.keys():
         hist_dict[key] = np.array(hist_dict[key],dtype=np.int16)
-    
+
+    """
     for index, i in enumerate(hist_need_num):
         if not i.item() == 0:
             random_sample = np.random.choice(hist_dict[index+1],size=(i.item()))
             hist_dict[index+1] = np.append(hist_dict[index+1], random_sample)
-
+    """
     #pop zero sample class
     pop_list = []
     for key in hist_dict.keys():
@@ -55,7 +56,7 @@ def resample():
         print(key)
         for index in hist_dict[key]:
             data_item = trains[index.item()]
-            tmp = {"input":data_item["input"].astype(np.uint8),"label": data_item["label"],"categroy": key-1}
+            tmp = {"input":data_item["input"],"label": data_item["label"],"categroy": key-1}
             new_datas.append(tmp)
 
     #new_inputs = np.array(new_inputs)
@@ -84,7 +85,7 @@ def convert_to(data_set, name):
     print('Writing', filename)
     writer = tf.python_io.TFRecordWriter(filename)
     for index in range(num_examples):
-        image_raw = data_set[index]["input"].tostring()
+        image_raw = data_set[index]["input"].astype(np.uint8).tostring()
         label_raw = data_set[index]["label"].item()
         categroy_raw = data_set[index]["categroy"]
         example = tf.train.Example(features=tf.train.Features(feature={
@@ -96,12 +97,16 @@ def convert_to(data_set, name):
 
 def main():
     # Get the data.
-    data_set = resample()
+    data_set = sample()
+    for i in range(10):
+        np.random.shuffle(data_set)
     valid_data_num = int(len(data_set) / 10) #get 10% data for validation
     valid_set = data_set[0 : valid_data_num ]
     train_set = data_set[valid_data_num  : ]
-    convert_to(train_set, "train_Imp_3x3_resampled")
-    convert_to(valid_set, "valid_Imp_3x3_resampled")
+    #testa_set = joblib.load("../data/CIKM2017_testA/testA_Imp_3x3.pkl")
+    convert_to(train_set, "train_Imp_3x3_classed")
+    convert_to(valid_set, "valid_Imp_3x3_classed")
+    #convert_to(testa_set, "testA_Imp_3x3")
     return
 if __name__ == "__main__":
     main()

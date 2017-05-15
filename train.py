@@ -7,6 +7,7 @@ from tqdm import *
 from old_conv3d_model import conv3dnet
 from c3d_model import c3d_fc, c3d_fcn
 from tensorflow.python import debug as tf_debug
+from sklearn.metrics import mean_squared_error
 
 
 # def loss(logits, labels):
@@ -62,8 +63,9 @@ def combind_loss(logits, labels, reg_preds, reg_labels):
     cem = tf.reduce_mean(cross_entropy, name='cross_entropy')
     w_cem = cem * alpha
     tf.add_to_collection("losses", w_cem)
-    reg_labels = tf.reshape(reg_labels, (-1,1))
-    rmse = tf.sqrt(tf.losses.mean_squared_error(reg_labels, reg_preds, loss_collection=None))
+    reg_labels = tf.reshape(reg_labels, (-1, 1))
+    # rmse = tf.sqrt(tf.losses.mean_squared_error(reg_labels, reg_preds, loss_collection=None))
+    rmse = tf.sqrt(tf.reduce_mean(tf.squared_difference(reg_labels,reg_preds)))
     w_rmse = rmse * beta
     tf.add_to_collection("losses", w_rmse)
 
@@ -108,7 +110,7 @@ def preprocessing(inputs):
 
 
 def read_and_decode_from_tfrecord(trainfilename, validfilename, is_training, batch_size, shuffle=False,
-                                  num_epochs=None):
+                                  num_epochs=None, istesta=False):
     """
     Read trainfile and validfile to produce two queues
     :param trainfilename: training tfrecord filename 
@@ -135,21 +137,35 @@ def read_and_decode_from_tfrecord(trainfilename, validfilename, is_training, bat
 
     reader = tf.TFRecordReader()
     _, serialized_example = reader.read(queue)  # 返回文件名和文件
-    features = tf.parse_single_example(serialized_example,
-                                       features={
-                                           'image_raw': tf.FixedLenFeature([], tf.string),
-                                           'categroy': tf.FixedLenFeature([], tf.int64),
-                                           'label': tf.FixedLenFeature([], tf.float32)
-                                       })
-    img = tf.decode_raw(features['image_raw'], tf.uint8)
-    depth, height, width, channel = 15, 101, 101, 4
-    img = tf.reshape(img, [depth, height, width, channel])
-    img = tf.cast(img, tf.float32)
-    img = preprocessing(img)
 
-    reg_label = features['label']
-    class_label = features['categroy']
+    if not istesta:
+        features = tf.parse_single_example(serialized_example,
+                                           features={
+                                               'image_raw': tf.FixedLenFeature([], tf.string),
+                                               'categroy': tf.FixedLenFeature([], tf.int64),
+                                               'label': tf.FixedLenFeature([], tf.float32)
+                                           })
+        img = tf.decode_raw(features['image_raw'], tf.uint8)
+        depth, height, width, channel = 15, 101, 101, 4
+        img = tf.reshape(img, [depth, height, width, channel])
+        img = tf.cast(img, tf.float32)
+        img = preprocessing(img)
 
+        reg_label = features['label']
+        class_label = features['categroy']
+    else:
+        features = tf.parse_single_example(serialized_example,
+                                           features={
+                                               'image_raw': tf.FixedLenFeature([], tf.string),
+                                               'label': tf.FixedLenFeature([], tf.float32)
+                                           })
+        img = tf.decode_raw(features['image_raw'], tf.uint8)
+        depth, height, width, channel = 15, 101, 101, 4
+        img = tf.reshape(img, [depth, height, width, channel])
+        img = tf.cast(img, tf.float32)
+        img = preprocessing(img)
+        reg_label = features['label']
+        class_label = -1
     if shuffle:
         image_batch, reg_label_batch, class_label_batch = tf.train.shuffle_batch([img, reg_label, class_label],
                                                                                  batch_size=batch_size, capacity=5000,
@@ -157,7 +173,7 @@ def read_and_decode_from_tfrecord(trainfilename, validfilename, is_training, bat
                                                                                  num_threads=4)
     else:
         image_batch, reg_label_batch, class_label_batch = tf.train.batch([img, reg_label, class_label],
-                                                                         batch_size=batch_size, capacity=5000,
+                                                                         batch_size=batch_size, capacity=2000,
                                                                          num_threads=4)
 
     return image_batch, class_label_batch, reg_label_batch
@@ -166,8 +182,8 @@ def read_and_decode_from_tfrecord(trainfilename, validfilename, is_training, bat
 def train():
     train_batch_size = 16
     test_batch_size = 1
-    train_set_num = 94541
-    valid_set_num = 10504
+    train_set_num = 9000
+    valid_set_num = 1000
     max_epochs = 200
     max_steps = 1000000
     display_step = 1
@@ -175,7 +191,7 @@ def train():
     testa_out_list = []
     STORE = False
     Regression = True
-    START_LR = 0.00001
+    START_LR = 0.0001
     SNAPSTEP = 1000
     LR_DECAY_STEP = 1000
     LR_DECAY_RATE = 0.95
@@ -186,8 +202,7 @@ def train():
     FINETUNING = False
 
     # dirpath = "./" + "FC_SIZE:" + str(FC_SIZE) + "_batch_size" + str(train_batch_size) + "_data_agg" + "_10_fold_cv"
-    dirpath = "../result/" + "c3d_v1.0_batch_size:" + str(
-        train_batch_size) + "_4_channel" + "_resample" + "_fc" + "_bn"
+    dirpath = "../result/" + "c3d_v1.0_batch_size:" + str(train_batch_size) + "_4_channel" + "_fc" + "_bn"
     # dirpath = "../result/" + "old_conv3d_batch_size:" + str(train_batch_size) +  "_4_channel" +"_agg"
 
     CHECKPOINT_DIR = os.path.join(dirpath, "checkpoints")
@@ -195,11 +210,13 @@ def train():
     # read data
     # trainfile = "../data/CIKM2017_train/train_Imp_3x3_mean_axis1_ori_and_flip_ax1&2_shuffle.pkl"
     # trainfile = "../data/CIKM2017_train/train_Imp_3x3_resampled.pkl"
-    trainfile = "../data/CIKM2017_train/train_Imp_3x3_resampled.tfrecords"
+    # trainfile = "../data/CIKM2017_train/train_Imp_3x3_resampled.tfrecords"
+    trainfile = "../data/CIKM2017_train/train_Imp_3x3_classed.tfrecords"
     # trainfile = "../data/CIKM2017_train/train_Imp_3x3_fliped&rotated.tfrecords"
     # trainfile = "../data/CIKM2017_train/train_Imp_3x3_fliped.pkl"
     # trainfile = "../data/CIKM2017_train/train_Imp_3x3.tfrecords"
-    validfile = "../data/CIKM2017_train/valid_Imp_3x3_resampled.tfrecords"
+    # validfile = "../data/CIKM2017_train/valid_Imp_3x3_resampled.tfrecords"
+    validfile = "../data/CIKM2017_train/valid_Imp_3x3_classed.tfrecords"
     # validfile = "../data/CIKM2017_train/valid_Imp_3x3_fliped&rotated.tfrecords"
     # validfile = "../data/CIKM2017_train/valid_Imp_3x3.tfrecords"
 
@@ -226,7 +243,8 @@ def train():
     # build model
     if network_type == "FC":
         with tf.variable_scope("model") as scope:
-            out_sm, out_reg, r_p5, fc1, fc2, fc3 = c3d_fc(datas, keepprob, train_batch_size, n_class, DTYPE, is_training)
+            out_sm, out_reg, r_p5, fc1, fc2, fc3 = c3d_fc(datas, keepprob, train_batch_size, n_class, DTYPE,
+                                                          is_training)
             # preds = conv3dnet(datas, keepprob, n_class)
     elif network_type == "FCN":
         with tf.variable_scope("model") as scope:
@@ -244,20 +262,24 @@ def train():
     lr = tf.train.exponential_decay(START_LR, global_step, LR_DECAY_STEP, LR_DECAY_RATE, staircase=True)
     tf.summary.scalar('learning_rate', lr)
 
+    update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
+
     if FINETUNING:
-        train_op = tf.train.AdamOptimizer(lr)
-        grads = train_op.compute_gradients(loss,
-                                           [v for v in tf.trainable_variables() if
+        with tf.control_dependencies(update_ops):
+            train_op = tf.train.AdamOptimizer(lr)
+            grads = train_op.compute_gradients(loss,[v for v in tf.trainable_variables() if
                                             (v.name.startswith("model/output") or v.name.startswith(
                                                 "model/fc7") or v.name.startswith("model/fc6"))])
-
-        train_op = train_op.apply_gradients(grads, global_step=global_step)
+            train_op = train_op.apply_gradients(grads, global_step=global_step)
     else:
-        train_op = tf.train.AdamOptimizer(lr).minimize(loss, global_step=global_step)
+        with tf.control_dependencies(update_ops):
+            train_op = tf.train.AdamOptimizer(lr).minimize(loss, global_step=global_step)
 
     summary_op = tf.summary.merge_all()
 
     init_op = tf.group(tf.global_variables_initializer(), tf.local_variables_initializer())
+
+
     # param saver
     if FINETUNING:
         saver_finetuning = tf.train.Saver(
@@ -301,8 +323,9 @@ def train():
                 if coord.should_stop():
                     break
 
-                _, loss_out, cem_out, rmse_out, summary_str = sess.run([train_op, loss, cme, rmse, summary_op],
-                                             feed_dict={is_training: True, keepprob: 0.5})
+                _, loss_out, cem_out, rmse_out, summary_str, label, reg_pred = sess.run(
+                    [train_op, loss, cme, rmse, summary_op, reg_labels, out_reg],
+                    feed_dict={is_training: True, keepprob: 0.5})
                 train_loss += loss_out
                 train_rmse += rmse_out
                 train_cem += cem_out
@@ -311,29 +334,39 @@ def train():
                 every_epoch_step_num = int(train_set_num / train_batch_size)
                 # epoch_num = int(step / every_epoch_step_num)
 
-                if step % display_step == 0 and not step == 0:
-                    print("Step:%05d,loss:%9f,cem:%9f, rmse:%9f" % (step, train_loss / step, train_cem / step, train_rmse / step))
+                if step % display_step == 0 and not step % every_epoch_step_num == 0:
+                    print("Step:%05d,loss:%9f,avg_cem:%9f, avg_rmse:%9f" % (
+                    step, train_loss / (step % every_epoch_step_num),
+                    train_cem / (step % every_epoch_step_num ),
+                    train_rmse / (step % every_epoch_step_num )))
+                    test_rmse = np.sqrt(mean_squared_error(label, reg_pred))
+                    print("real_rmse:%9f,tf_rmse:%9f" % (test_rmse, rmse_out))
                 if step % LR_DECAY_STEP == 0:
                     print("Learning Rate Decay, current learning rate:%9f" % sess.run(lr))
                 if step % every_epoch_step_num == 0 and not step == 0:
                     print("===============Validation===============")
                     epoch += 1
+                    train_loss = 0
+                    train_rmse = 0
+                    train_cem = 0
                     valid_acc = 0
                     valid_cem = 0
                     valid_rmse = 0
                     valid_step = int(valid_set_num / train_batch_size)
                     for step in range(valid_step):
-                        loss_val, cme_val, rmse_val = sess.run([loss, cme, rmse], feed_dict={is_training: False, keepprob: 1.0})
+                        loss_val, cme_val, rmse_val = sess.run([loss, cme, rmse],
+                                                               feed_dict={is_training: False, keepprob: 1.0})
                         valid_acc += loss_val
                         valid_cem += cme_val
                         valid_rmse += rmse_val
-                        # val_writer.add_summary(summary_str, global_step=step)
+                    # val_writer.add_summary(summary_str, global_step=step)
 
-                    result = "Epoch:%03d,Acc=%9f,Cme=%9f,Rmse=%9f" % (epoch, valid_acc / valid_step, valid_cem / valid_step, valid_rmse / valid_step,)
+                    result = "Epoch:%03d,Acc=%9f,Cme=%9f,Rmse=%9f" % (
+                    epoch, valid_acc / valid_step, valid_cem / valid_step, valid_rmse / valid_step,)
                     print(result)
                 if step % SNAPSTEP == 0 and not step == 0:
                     if not os.path.exists(CHECKPOINT_DIR):
-                        os.mkdir(CHECKPOINT_DIR)
+                       os.mkdir(CHECKPOINT_DIR)
                     saver.save(sess, CHECKPOINT_DIR + '/' + 'checkpoint', global_step=step)
                     print("Model save in file %s" % CHECKPOINT_DIR)
         except tf.errors.OutOfRangeError:
@@ -411,52 +444,51 @@ def train():
 
 
 def output():
-    train_batch_size = 1
-    train_set_num = 94541
-    valid_set_num = 10504
-    max_steps = valid_set_num
+    batch_size = 1
+    train_set_num = 9000
+    valid_set_num = 1000
     n_class = 47
     DTYPE = tf.float32
     DEBUG = False
     FINETUNING = True
+    output_testA = True
 
+    if output_testA:
+        max_steps = int( 2000 / batch_size)
+    else:
+        max_steps = int(valid_set_num / batch_size)
     # dirpath = "./" + "FC_SIZE:" + str(FC_SIZE) + "_batch_size" + str(train_batch_size) + "_data_agg" + "_10_fold_cv"
-    dirpath = "../result/" + "c3d_v1.0_batch_size:" + str(
-        train_batch_size) + "_4_channel" + "_resample" + "_fcn" + "_bn"
+    # dirpath = "../result/" + "c3d_v1.0_batch_size:" + str(
+    #    train_batch_size) + "_4_channel" + "_resample" + "_fcn" + "_bn"
     # dirpath = "../result/" + "old_conv3d_batch_size:" + str(train_batch_size) +  "_4_channel" +"_agg"
-    dirpath = "../result/c3d_v1 (copy).0_batch_size:16_4_channel_resample_fcn_bn"
+    dirpath = "../result/c3d_v1.0_batch_size:16_4_channel_fc_bn"
 
     CHECKPOINT_DIR = os.path.join(dirpath, "checkpoints")
     log_dir = os.path.join(dirpath, "log")
     # read data
-    trainfile = "../data/CIKM2017_train/train_Imp_3x3_resampled.tfrecords"
+    trainfile = "../data/CIKM2017_train/train_Imp_3x3_classed.tfrecords"
     # trainfile = "../data/CIKM2017_train/train_Imp_3x3.tfrecords"
     # trainfile = "../data/CIKM2017_train/train_Imp_3x3_fliped&rotated.tfrecords"
-    validfile = "../data/CIKM2017_train/valid_Imp_3x3_resampled.tfrecords"
+    validfile = "../data/CIKM2017_train/valid_Imp_3x3_classed.tfrecords"
     # validfile = "../data/CIKM2017_train/valid_Imp_3x3_fliped&rotated.tfrecords"
-    testafile = "../data/CIKM2017_testA/testA_Imp_3x3.pkl"
+    testafile = "../data/CIKM2017_testA/testA_Imp_3x3.tfrecords"
 
     print(train_set_num)
     print(valid_set_num)
 
-    testdatas, _ = read_data_from_pkl(testafile)
     # global variable
     is_training = tf.placeholder_with_default(True, None)
     keepprob = tf.placeholder(dtype=DTYPE, shape=None)
 
     # data input
-    datas, class_labels, reg_labels = read_and_decode_from_tfrecord(trainfile, validfile, is_training, train_batch_size,
-                                                                    shuffle=False)
+    datas, class_labels, reg_labels = read_and_decode_from_tfrecord(trainfile, validfile, is_training, batch_size,
+                                                                    shuffle=False, istesta=False)
 
     # build model
     with tf.variable_scope("model") as scope:
-        preds, pool5 = c3d_fcn(testdatas, keepprob, train_batch_size, n_class, DTYPE, is_training)
+        sm, reg, r_p5, fc1, fc2, fc3 = c3d_fc(datas, keepprob, batch_size, n_class, DTYPE, is_training)
 
     init_op = tf.group(tf.global_variables_initializer(), tf.local_variables_initializer())
-    # param saver
-    if FINETUNING:
-        saver_finetuning = tf.train.Saver(
-            [v for v in tf.trainable_variables() if not (v.name.startswith("model/output"))])
     saver = tf.train.Saver(tf.trainable_variables())
 
     # Session Config
@@ -464,44 +496,47 @@ def output():
     config.gpu_options.allow_growth = True
 
     with tf.device('/gpu:0'), tf.Session(config=config) as sess:
-        if DEBUG:
-            sess = tf_debug.LocalCLIDebugWrapperSession(sess)
-            sess.add_tensor_filter("has_inf_or_nan", tf_debug.has_inf_or_nan)
 
         sess.run(init_op)
 
         checkpoint = tf.train.get_checkpoint_state(CHECKPOINT_DIR)
         if checkpoint and checkpoint.model_checkpoint_path:
-            # if FINETUNING:
-            # saver_finetuning.restore(sess, checkpoint.model_checkpoint_path)
-            #    print("checkpoint loaded:", checkpoint.model_checkpoint_path)
-            # else:
             saver.restore(sess, checkpoint.model_checkpoint_path)
             print("checkpoint loaded:", checkpoint.model_checkpoint_path)
         else:
             print("Could not find old checkpoint")
+        if not output_testA:
+            feature_output_list = []
+        else:
+            testa_out_list = []
 
         coord = tf.train.Coordinator()
         threads = tf.train.start_queue_runners(sess=sess, coord=coord)
-        feature_output_list = []
 
         try:
-            for step in tqdm(range(2000)):
+            for step in tqdm(range(max_steps)):
                 if coord.should_stop():
                     break
-                p5_out = sess.run(pool5,
-                                  feed_dict={is_training: False, keepprob: 1.0})
-                p5_out = np.reshape(p5_out, (8192))
-                feature_output_list.append({"idx": step + 1, "w": p5_out})
+                out_reg, out_p5, out_fc1, out_fc2, out_fc3, label = sess.run([reg, r_p5, fc1, fc2, fc3, reg_labels],
+                                                                       feed_dict={is_training: True, keepprob: 1.0})
+                out_p5 = np.reshape(out_p5, (batch_size * 8192))
+                if not output_testA:
+                    feature_output_list.append(
+                        {"idx": step + 1, "pool5": out_p5, "fc1": out_fc1, "fc2": out_fc2, "fc3": out_fc3,
+                         "label": label, "reg_out":out_reg})
+                else:
+                    testa_out_list.append(out_reg)
 
         except tf.errors.OutOfRangeError:
             print('Done training --epoch limit reached')
         finally:
             coord.request_stop()
 
-        joblib.dump(value=feature_output_list, filename="pool5_testA.pkl", compress=3)
-
         coord.join(threads)
+        if not output_testA:
+            joblib.dump(value=feature_output_list, filename=os.path.join(dirpath, "train_feature.pkl"), compress=3)
+        else:
+            joblib.dump(value=testa_out_list, filename=os.path.join(dirpath, "testA_out.pkl"), compress=3)
 
 
 def test():
@@ -518,27 +553,29 @@ def test():
 
     testfile = "../data/CIKM2017_testA/testA_Imp_3x3.pkl"
     testa_data, _ = read_data_from_pkl(datafile=testfile)
-    dirpath = "../result/c3d_v1 (copy).0_batch_size:16_4_channel_resample_fcn_bn"
+    dirpath = "../result/c3d_v1.0_batch_size:16_4_channel_fc_bn"
     CHECKPOINT_DIR = os.path.join(dirpath, "checkpoints")
 
     is_training = tf.placeholder_with_default(True, None)
     inputs = tf.placeholder(shape=(None, 15, 101, 101, 4), dtype=DTYPE)
     keepprob = tf.placeholder(dtype=DTYPE, shape=None)
 
+    with tf.variable_scope("model") as scope:
+        out_sm, out_reg, r_p5, fc1, fc2, fc3 = c3d_fc(inputs, keepprob, train_batch_size, n_class, DTYPE, is_training)
+
     init_op = tf.group(tf.global_variables_initializer(), tf.local_variables_initializer())
 
-    with tf.variable_scope("model") as scope:
-        preds, pool5 = c3d_fcn(inputs, keepprob, train_batch_size, n_class, DTYPE, is_training)
-
-    saver = tf.train.Saver()
+    saver = tf.train.Saver(tf.trainable_variables())
 
     config = tf.ConfigProto()
     config.gpu_options.allow_growth = True
 
     with tf.device('/gpu:0'), tf.Session(config=config) as sess:
+
         sess.run(init_op)
-        # saver.restore(sess,
+
         testa_out_list.clear()
+
         checkpoint = tf.train.get_checkpoint_state(CHECKPOINT_DIR)
         if checkpoint and checkpoint.model_checkpoint_path:
             saver.restore(sess, checkpoint.model_checkpoint_path)
@@ -551,13 +588,17 @@ def test():
             batch_index_front = i * test_batch_size
             batch_index_end = (i + 1) * test_batch_size
             train_batch_x = testa_data[batch_index_front:batch_index_end]
-            p5_out = sess.run(pool5, feed_dict={inputs: train_batch_x, is_training: False, keepprob: 1.0})
-            feature_output_list.append({"idx": i + 1, "w": p5_out})
+            testa_out, out_p5, out_fc1, out_fc2, out_fc3 = sess.run([out_reg, r_p5, fc1, fc2, fc3],
+                                                                    feed_dict={inputs: train_batch_x,
+                                                                               is_training: False, keepprob: 1.0})
+            # feature_output_list.append({"idx": i + 1, "pool5": out_p5, "fc1": out_fc1, "fc2":out_fc2, "fc3":out_fc3})
+            testa_out_list.append(testa_out)
 
-        joblib.dump(value=feature_output_list, filename="pool5_testA.pkl", compress=3)
+        # joblib.dump(value=feature_output_list, filename=os.path.join(dirpath,"testA_Feature.pkl"), compress=3)
+        joblib.dump(value=testa_out_list, filename=os.path.join(dirpath, "testA_out.pkl"), compress=3)
 
 
 if __name__ == "__main__":
     train()
-    # output()
-    # test()
+    #output()
+    #test()

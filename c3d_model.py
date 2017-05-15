@@ -95,8 +95,11 @@ def batch_norm(l_input, is_traininig, is_conv=True):
     return normed
 '''
 
+
 def batch_norm(l_input, is_training):
-    return tf.contrib.layers.batch_norm(l_input, decay=0.9,updates_collections=None,epsilon=1e-5,scale=True,is_training=is_training,scope = "bn")
+    return tf.contrib.layers.batch_norm(l_input, decay=0.9, epsilon=1e-5, center=True,
+                                        scale=True, is_training=is_training, scope="bn")
+
 
 def c3d_fc(_input, _dropout, batch_size, n_classs, dtype, is_training):
     # Convolution Layer 1
@@ -120,14 +123,14 @@ def c3d_fc(_input, _dropout, batch_size, n_classs, dtype, is_training):
         relu3a = tf.nn.relu(bn3a, "relu")
     with tf.variable_scope("conv3b"):
         conv3b = conv3d(relu3a, dtype, [3, 3, 3, 256, 256], [256], 0.0005)
-        bn3b = batch_norm(conv3b,is_training)
+        bn3b = batch_norm(conv3b, is_training)
         relu3b = tf.nn.relu(bn3b, "relu")
         pool3 = max_pool("pooling", relu3b, k=2)
 
     # Convolution Layer 4
     with tf.variable_scope("conv4a"):
         conv4a = conv3d(pool3, dtype, [3, 3, 3, 256, 512], [512], 0.0005)
-        bn4a = batch_norm(conv4a,is_training)
+        bn4a = batch_norm(conv4a, is_training)
         relu4a = tf.nn.relu(bn4a, "relu")
     with tf.variable_scope("conv4b"):
         conv4b = conv3d(relu4a, dtype, [3, 3, 3, 512, 512], [512], 0.0005)
@@ -138,11 +141,11 @@ def c3d_fc(_input, _dropout, batch_size, n_classs, dtype, is_training):
     # Convolution Layer 5
     with tf.variable_scope("conv5a"):
         conv5a = conv3d(pool4, dtype, [3, 3, 3, 512, 512], [512], 0.0005)
-        bn5a = batch_norm(conv5a,is_training)
+        bn5a = batch_norm(conv5a, is_training)
         relu5a = tf.nn.relu(bn5a, "relu")
     with tf.variable_scope("conv5b"):
         conv5b = conv3d(relu5a, dtype, [3, 3, 3, 512, 512], [512], 0.0005)
-        bn5b = batch_norm(conv5b,is_training)
+        bn5b = batch_norm(conv5b, is_training)
         relu5b = tf.nn.relu(bn5b, 'relu')
         pool5 = max_pool('pooling', relu5b, k=2)
 
@@ -180,7 +183,6 @@ def c3d_fc(_input, _dropout, batch_size, n_classs, dtype, is_training):
         out_regression = fully_connected(dropoutfc3, dtype, [4096, 1], [1], 0.0005)
 
     return out_softmax, out_regression, pool5_re, fc1, fc2, fc3
-
 
 
 def c3d_fcn(_input, _dropout, batch_size, n_classs, dtype, is_training):
@@ -250,9 +252,9 @@ def c3d_fcn(_input, _dropout, batch_size, n_classs, dtype, is_training):
         out = tf.reshape(out, [batch_size, n_classs])
 
     with tf.variable_scope("output_num"):
-        out_num = conv3d(dropout7, dtype, [1,1,1,4096, 1], [1], 0.0000, "VALID")
+        out_num = conv3d(dropout7, dtype, [1, 1, 1, 4096, 1], [1], 0.0000, "VALID")
         out_num = tf.transpose(out_num, perm=[0, 1, 4, 2, 3])
         out_num = tf.reshape(out_num, [batch_size, 1])
 
     return out, pool5, out_num
-    #return out, pool5
+    # return out, pool5
