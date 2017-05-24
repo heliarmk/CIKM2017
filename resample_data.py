@@ -4,8 +4,8 @@ import joblib
 import tensorflow as tf
 import os
 
-def sample():
-    trains = joblib.load("../data/CIKM2017_train/train_Imp_3x3.pkl")
+def sample(trains):
+
     labels = []
     for i in trains:
         labels.append(i["label"])
@@ -14,28 +14,42 @@ def sample():
     hist, bin_edge = np.histogram(labels,bins="auto")
     bin_dict = np.digitize(labels,bin_edge)
     hist = np.append(hist[:63],[0,1])
+    '''
     hist_need_num = np.max(hist) - hist
     for index, i in enumerate(hist_need_num):
         if i.item() == np.max(hist):
             hist_need_num[index] = 0
+    '''
+    #the class which its item count less than 100 would be merge in a new class
+    less_than_100_list = []
+    for i, item in enumerate(hist):
+        if (item < 100):
+            less_than_100_list.append(i + 1)
+    for idx in range(bin_dict.shape[0]):
+        if any([bin_dict[idx] == x for x in less_than_100_list]):
+           bin_dict[idx] = 22
 
     hist_dict = {}
-    for i in range(1,66):
-        tmp = {i:[]}
-        hist_dict.update(tmp)
-    for index, i in enumerate(bin_dict):
-        hist_dict[i.item()].append(index)
-    
+
+    for idx, num in enumerate(bin_dict):
+        if not any(num.item() == key for key in hist_dict.keys()):
+            hist_dict.update({num.item(): [idx]})
+        else:
+            hist_dict[num.item()].append(idx)
+
+    hist_new = np.zeros((len(hist_dict.keys())))
     for key in hist_dict.keys():
         hist_dict[key] = np.array(hist_dict[key],dtype=np.int16)
+        hist_new[key-1] = hist_dict[key].shape[0]
 
-    """
+    hist_need_num = (np.max(hist_new) - hist_new).astype(np.int16)
+
     for index, i in enumerate(hist_need_num):
         if not i.item() == 0:
             random_sample = np.random.choice(hist_dict[index+1],size=(i.item()))
             hist_dict[index+1] = np.append(hist_dict[index+1], random_sample)
-    """
     #pop zero sample class
+    '''
     pop_list = []
     for key in hist_dict.keys():
         if hist_dict[key].size == 0:
@@ -50,7 +64,7 @@ def sample():
         hist_dict.update({begin_key:hist_dict[key]})
         hist_dict.pop(key)
         begin_key += 1
-
+    '''
     new_datas = []
     for key in hist_dict.keys():
         print(key)
@@ -77,36 +91,93 @@ def _float_feature(value):
     return tf.train.Feature(float_list=tf.train.FloatList(value=[value]))
 
 
-def convert_to(data_set, name):
+def convert_to(data_set, name, is_test=False):
     num_examples = len(data_set)
-    for i in range(10):
-        np.random.shuffle(data_set)
-    filename = os.path.join("/mnt/guankai/CIKM/data/CIKM2017_train/", name + '.tfrecords')
-    print('Writing', filename)
-    writer = tf.python_io.TFRecordWriter(filename)
-    for index in range(num_examples):
-        image_raw = data_set[index]["input"].astype(np.uint8).tostring()
-        label_raw = data_set[index]["label"].item()
-        categroy_raw = data_set[index]["categroy"]
-        example = tf.train.Example(features=tf.train.Features(feature={
-            'categroy':_int64_feature(categroy_raw),
-            'label': _float_feature(label_raw),
-            'image_raw': _bytes_feature(image_raw)}))
-        writer.write(example.SerializeToString())
-    writer.close()
+    if not is_test:
+        for i in range(10):
+            np.random.shuffle(data_set)
+        filename = os.path.join("/mnt/guankai/CIKM/data/CIKM2017_train/", name + '.tfrecords')
+        print('Writing', filename)
+        writer = tf.python_io.TFRecordWriter(filename)
+        for index in range(num_examples):
+            #image_raw = data_set[index]["input"].astype(np.uint8).tostring()
+            image_raw = data_set[index]["input"].tostring()
+            label_raw = data_set[index]["label"].item()
+            categroy_raw = data_set[index]["categroy"]
+            example = tf.train.Example(features=tf.train.Features(feature={
+                'categroy':_int64_feature(categroy_raw),
+                'label': _float_feature(label_raw),
+                'image_raw': _bytes_feature(image_raw)}))
+            writer.write(example.SerializeToString())
+        writer.close()
+    else:
+        filename = os.path.join("/mnt/guankai/CIKM/data/CIKM2017_testA/", name + '.tfrecords')
+        print('Writing', filename)
+        writer = tf.python_io.TFRecordWriter(filename)
+        for index in range(num_examples):
+            #image_raw = data_set[index]["input"].astype(np.uint8).tostring()
+            image_raw = data_set[index]["input"].tostring()
+            label_raw = data_set[index]["label"].item()
+            example = tf.train.Example(features=tf.train.Features(feature={
+                'label': _float_feature(label_raw),
+                'image_raw': _bytes_feature(image_raw)}))
+            writer.write(example.SerializeToString())
+        writer.close()
 
+def preprocessing(inputs, mean, std, is_train_set=False, only_calc_mean_std=False):
+    # Zero Center the inputs
+    datas = inputs
+    # shape (15,101,101,4)
+    #mean, var = np.moments(datas, axes=(1, 2), keep_dims=True)
+    #datas = tf.subtract(datas, mean)
+    if is_train_set:
+        mean, std = np.zeros((15,4,1,1)), np.zeros((15,4,1,1))
+        for item in datas:
+            mean += np.mean(item["input"], axis=(2,3),keepdims=True)
+            std += np.std(item["input"], axis=(2,3), keepdims=True)
+
+        final_mean = mean / len(datas)
+        final_std = std / len(datas)
+
+            # Zero Center and normalization the inputs
+        if not only_calc_mean_std:
+            for idx in range(len(datas)):
+                #print(idx)
+                datas[idx]["input"] = np.subtract(datas[idx]["input"].astype(np.float32),final_mean).astype(np.uint8)
+                datas[idx]["input"] = np.divide(datas[idx]["input"].astype(np.float32), final_std).astype(np.uint8)
+            # ZCA (TODO)
+
+        return datas, final_mean, final_std
+    else:
+        final_mean = mean
+        final_std = std
+        #for validation and test set
+        for idx in range(len(datas)):
+            #print(idx)
+            datas[idx]["input"] = np.subtract(datas[idx]["input"].astype(np.float32),final_mean).astype(np.uint8)
+            datas[idx]["input"] = np.divide(datas[idx]["input"].astype(np.float32), final_std).astype(np.uint8)
+
+        return datas
 def main():
     # Get the data.
-    data_set = sample()
+    trains = joblib.load("../data/CIKM2017_train/train_Imp_3x3.pkl")
+    testa_set = joblib.load("../data/CIKM2017_testA/testA_Imp_3x3.pkl")
+    data_set = sample(trains)
     for i in range(10):
         np.random.shuffle(data_set)
     valid_data_num = int(len(data_set) / 10) #get 10% data for validation
-    valid_set = data_set[0 : valid_data_num ]
-    train_set = data_set[valid_data_num  : ]
-    #testa_set = joblib.load("../data/CIKM2017_testA/testA_Imp_3x3.pkl")
-    convert_to(train_set, "train_Imp_3x3_classed")
-    convert_to(valid_set, "valid_Imp_3x3_classed")
-    #convert_to(testa_set, "testA_Imp_3x3")
+    for i in range(10):
+        valid_set = data_set[i * valid_data_num : (i+1) * valid_data_num ]
+        train_set = data_set[0: i*valid_data_num]
+        train_set.extend(data_set[(i+1)*valid_data_num:])
+        train_out, train_mean, train_std = preprocessing(train_set, 0, 0, True )
+        valid_out = preprocessing(valid_set, train_mean, train_std)
+
+        testa_out = preprocessing(testa_set, train_mean, train_std)
+
+        convert_to(train_out, "train_Imp_3x3_resample_normalization_"+str(i)+"_fold", is_test=False)
+        convert_to(valid_out, "valid_Imp_3x3_resample_normalization_"+str(i)+"_fold", is_test=False)
+        convert_to(testa_out, "testA_Imp_3x3_normalization_"+str(i)+"_fold", is_test=True)
     return
 if __name__ == "__main__":
     main()

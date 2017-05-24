@@ -162,14 +162,14 @@ def c3d_fc(_input, _dropout, batch_size, n_classs, dtype, is_training):
         dropoutfc1 = tf.nn.dropout(relufc1, _dropout, name="dropout")
 
     with tf.variable_scope("dense2"):
-        fc2 = fully_connected(dropoutfc1, dtype, [4096, 4096], [4096], 0.0005)
+        fc2 = fully_connected(dropoutfc1, dtype, [4096, 2048], [2048], 0.0005)
         bnfc2 = batch_norm(fc2, is_training)
         # dense2 = fully_connected(dense1, dtype, [2048, 1024], [1024], 0.0005)
         relufc2 = tf.nn.relu(bnfc2, name='relu')  # Relu activation
         dropoutfc2 = tf.nn.dropout(relufc2, _dropout, name="dropout")
 
     with tf.variable_scope("dense3"):
-        fc3 = fully_connected(dropoutfc2, dtype, [4096, 4096], [4096], 0.0005)
+        fc3 = fully_connected(dropoutfc2, dtype, [2048, 2048], [2048], 0.0005)
         bnfc3 = batch_norm(fc3, is_training)
         # dense2 = fully_connected(dense1, dtype, [2048, 1024], [1024], 0.0005)
         relufc3 = tf.nn.relu(bnfc3, name='relu')  # Relu activation
@@ -177,10 +177,10 @@ def c3d_fc(_input, _dropout, batch_size, n_classs, dtype, is_training):
 
     # Output: class prediction
     with tf.variable_scope("output_class"):
-        out_softmax = fully_connected(dropoutfc3, dtype, [4096, n_classs], [n_classs], 0.0005)
+        out_softmax = fully_connected(dropoutfc2, dtype, [2048, n_classs], [n_classs], 0.0005)
         # out = fully_connected(dense2, dtype, [1024, 1], [1], 0.0005)
     with tf.variable_scope("output_num"):
-        out_regression = fully_connected(dropoutfc3, dtype, [4096, 1], [1], 0.0005)
+        out_regression = fully_connected(dropoutfc3, dtype, [2048, 1], [1], 0.0005)
 
     return out_softmax, out_regression, pool5_re, fc1, fc2, fc3
 
@@ -247,8 +247,8 @@ def c3d_fcn(_input, _dropout, batch_size, n_classs, dtype, is_training):
         dropout7 = tf.nn.dropout(relu7, _dropout, name="dropout")
 
     with tf.variable_scope("output"):
-        out = conv3d(dropout7, dtype, [1, 1, 1, 4096, n_classs], [n_classs], 0.0000, "VALID")
-        out = tf.transpose(out, perm=[0, 1, 4, 2, 3])
+        out_conv = conv3d(dropout6, dtype, [1, 1, 1, 4096, n_classs], [n_classs], 0.0000, "VALID")
+        out = tf.transpose(out_conv, perm=[0, 1, 4, 2, 3])
         out = tf.reshape(out, [batch_size, n_classs])
 
     with tf.variable_scope("output_num"):
