@@ -27,12 +27,14 @@ def batch_norm(l_input, is_training):
     return tf.contrib.layers.batch_norm(l_input, decay=0.9, epsilon=1e-5, center=True,
                                         scale=True, is_training=is_training, scope="bn")
 
+
 def fully_connected(l_input, wsize, bsize, w_decay):
     w = _variable_with_weight_decay("weights", wsize, wd=w_decay)
     # w = _variable_trun_normal_init("weights", weight_shape, 0.0, dtype=dtype)
     # b = _variable_constant_init("biases", bias_shape, 0.0, dtype=dtype)
     b = _variable_with_weight_decay("biases", bsize, wd=0.0)
     return tf.matmul(l_input, w) + b
+
 
 def conv_lstm(input, step_size, dropout):
     # Prepare data shape to match `bidirectional_rnn` function requirements
@@ -59,7 +61,7 @@ def conv_lstm(input, step_size, dropout):
         multi_cells = MultiRNNCell([cell] * layer_n)
     # Get lstm cell output
     try:
-        outputs, _, _ = static_rnn(multi_cells, x)
+        outputs, final_state = static_rnn(multi_cells, x)
         # outputs, _, _ = rnn.static_bidirectional_rnn(lstm_fw_cell, lstm_bw_cell, x,
         #                                     dtype=tf.float32)
     except Exception:  # Old TensorFlow version only returns outputs not states
@@ -94,7 +96,7 @@ def conv_lstm(input, step_size, dropout):
         avg_pool_5 = avg_pool(relu_5, k=2)
 
     with tf.variable_scope("out_dense1"):
-        #pool5 = tf.transpose(avg_pool_5, perm=[0, 1, 3, 2])
+        # pool5 = tf.transpose(avg_pool_5, perm=[0, 1, 3, 2])
         pool5_re = tf.reshape(avg_pool_5, [-1, 6400])  # Reshape conv3 output to fit dense layer input
         fc1 = fully_connected(pool5_re, wsize=[6400, 1024], bsize=[1024], w_decay=0.0005)
         relu_fc1 = tf.nn.relu(fc1)
@@ -106,6 +108,6 @@ def conv_lstm(input, step_size, dropout):
         dropout_fc2 = tf.nn.dropout(relu_fc2, keep_prob=dropout)
 
     with tf.variable_scope("out_dense3"):
-        fc3 = fully_connected(dropout_fc2, wsize=[1024, 1], bsize=[1], w_decay = 0.0005)
+        fc3 = fully_connected(dropout_fc2, wsize=[1024, 1], bsize=[1], w_decay=0.0005)
 
     return fc3
