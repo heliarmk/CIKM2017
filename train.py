@@ -25,36 +25,10 @@ def get_num_records(tf_record_file):
     """
     return len([x for x in tf.python_io.tf_record_iterator(tf_record_file)])
 
-
-def total_loss(logits, labels):
-    """
-    Add L2Loss to all the trainable variables.
-    Add summary for "Loss" and "Loss/avg".
-    Args:
-      logits: Logits from inference().
-      labels: Labels from distorted_inputs or inputs(). 1-D tensor
-              of shape [batch_size]
-    Returns:
-      Loss tensor of type float.
-    """
-    # Calculate the average cross entropy loss across the batch.
-    labels = tf.cast(labels, tf.int64)
-    cross_entropy = tf.nn.sparse_softmax_cross_entropy_with_logits(
-        labels=labels, logits=logits, name='cross_entropy_per_example')
-    cross_entropy_mean = tf.reduce_mean(cross_entropy, name='cross_entropy')
-    tf.add_to_collection('losses', cross_entropy_mean)
-
-    # The total loss is defined as the cross entropy loss plus all of the weight
-    # decay terms (L2 loss).
-    return tf.add_n(tf.get_collection('losses'), name='total_loss')
-
-
-def regression_loss(preds, labels):
-    reg_loss = tf.nn.l2_loss((preds - labels), name="l2_loss_per_example")
-    reg_loss_mean = tf.reduce_mean(reg_loss, name="l2_loss")
-    tf.add_to_collection('losses', reg_loss_mean)
+def regression_loss(reg_preds, reg_labels):
+    rmse = tf.sqrt(tf.reduce_mean(tf.squared_difference(reg_labels, reg_preds)))
+    tf.add_to_collection('losses', rmse)
     return tf.add_n(tf.get_collection('losses'), name="total_loss")
-
 
 def combind_loss(logits, labels, reg_preds, reg_labels):
     alpha = 1
@@ -190,10 +164,10 @@ def ten_fold_ensamble():
         validfile = validfile_base + "_" + str(i) + "_fold.tfrecords"
         testafile = testafile_base + "_" + str(i) + "_fold.tfrecords"
         dirpath = os.path.join(dirpath_base, "Num" + str(i))
-        train(trainfile, validfile, testafile, i, dirpath)
+        train(trainfile, validfile, testafile, dirpath, i)
 
 
-def train(trainfile, validfile, testafile, fold, dirpath):
+def train(trainfile, validfile, testafile, dirpath, fold=0):
     train_batch_size = 16
     test_batch_size = 1
     #train_set_num = 9000
