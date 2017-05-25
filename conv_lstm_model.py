@@ -36,13 +36,13 @@ def _fully_connected(l_input, wsize, bsize, w_decay):
     return tf.matmul(l_input, w) + b
 
 
-def conv_lstm(input, step_size, dropout):
+def conv_lstm(input, time_step, dropout):
     # Prepare data shape to match `bidirectional_rnn` function requirements
     # Current data input shape: (batch_size, n_steps, n_input)
     # Required shape: 'n_steps' tensors list of shape (batch_size, n_input)
 
     # Unstack to get a list of 'n_steps' tensors of shape (batch_size, n_input)
-    x = tf.unstack(input, step_size, 1)
+    x = tf.unstack(input, time_step, 1)
 
     # Define lstm cells with tensorflow
     # Forward direction cell
