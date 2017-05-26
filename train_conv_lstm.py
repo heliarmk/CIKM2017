@@ -162,6 +162,8 @@ def train():
 
             if output:
                 out = []
+                if not os.path.exists(output_dir):
+                    os.mkdir(output_dir)
                 for batch in testgen.get_batch(batch_size=batch_size):
                     out.append(sess.run(preds, feed_dict={x:batch[0],keep_prob:1.0}))
                 output_fname = output_dir + "testa_epoch_%d/%d_" %(i+1, n_epochs) + ".csv"
