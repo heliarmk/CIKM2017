@@ -163,14 +163,13 @@ def train():
                     print("Learning rate decay, current learning rate:%g" % lr.eval())
 
             if output:
+                print("===================output test result==================")
                 out = []
                 if not os.path.exists(output_dir):
                     os.mkdir(output_dir)
                 for batch in testgen.get_batch(batch_size=batch_size):
-                    out.append(sess.run(preds, feed_dict={x:batch,keep_prob:1.0}))
-                out = np.asarray(out, dtype=np.float16)
-                print(out.shape)
-                out = out.reshape(-1)
+                    l_o = sess.run(preds, feed_dict={x:batch, keep_prob:1.0})
+                    out.extend(l_o.astype("float16").reshape(-1).tolist())
                 output_fname = output_dir + "/testa_epoch_%d-%d_" %(i+1, n_epochs) + ".csv"
                 np.savetxt(fname=output_fname, X=out, delimiter="")
                 print("testa output in file %s" % (output_fname))
