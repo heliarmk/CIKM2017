@@ -64,7 +64,7 @@ def train():
     n_batch = 313
     dtype = tf.float32
     debug = False
-    output = False
+    output = True
     finetuning = False
 
     dirpath = "../result/conv_lstm_bs_32_channel_3_resampled_5_conv_2_fc"
@@ -105,19 +105,21 @@ def train():
     summary_op = tf.summary.merge_all()
     init_op = tf.group(tf.global_variables_initializer(), tf.local_variables_initializer())
     # create batch generator with random augmentations applied on-the-fly
-    rng_aug_params = {'rotation_range': (-20, 20),
+    train_rng_aug_params = {'rotation_range': (-20, 20),
                       'translation_range': (-4, 4),
                       'do_flip_lr': True,
                       'do_flip_ud':True,
                       'output_shape':(80, 80)}
 
+    test_rng_aug_params = {'output_shape':(80, 80)}
+
     # train set data generator
-    datagen = dtd.BatchGenerator(X=train_set_x, y=train_set_y, rng_aug_params=rng_aug_params)
+    datagen = dtd.BatchGenerator(X=train_set_x, y=train_set_y, rng_aug_params=train_rng_aug_params)
 
     # resample the dataset
     datagen.resample_dataset(train_set_c, "balanced")
 
-    testgen = dtd.BatchGenerator(X=test_set_x)
+    testgen = dtd.BatchGenerator(X=test_set_x, rng_aug_params=test_rng_aug_params)
 
     testgen.mean = datagen.mean
     testgen.std = datagen.std
@@ -143,7 +145,7 @@ def train():
             print("Could not find old checkpoint")
 
         for i in range(n_epochs):
-            for idx, batch in enumerate(datagen.get_batch(batch_size=batch_size, shuffle=True)):
+            for idx, batch in enumerate(datagen.get_batch(batch_size=batch_size,buffer_size=1024,shuffle=True)):
                 step_n = idx + 1 + i * n_batch
                 r_l, t_l, _, summary_str = sess.run([r_loss, total_loss, train_op, summary_op], feed_dict={x: batch[0], y_: batch[1], keep_prob: 0.5})
                 train_writer.add_summary(summary_str, global_step=idx*(i+1))
@@ -165,8 +167,11 @@ def train():
                 if not os.path.exists(output_dir):
                     os.mkdir(output_dir)
                 for batch in testgen.get_batch(batch_size=batch_size):
-                    out.append(sess.run(preds, feed_dict={x:batch[0],keep_prob:1.0}))
-                output_fname = output_dir + "testa_epoch_%d/%d_" %(i+1, n_epochs) + ".csv"
+                    out.append(sess.run(preds, feed_dict={x:batch,keep_prob:1.0}))
+                out = np.asarray(out, dtype=np.float16)
+                print(out.shape)
+                out = out.reshape(-1)
+                output_fname = output_dir + "/testa_epoch_%d-%d_" %(i+1, n_epochs) + ".csv"
                 np.savetxt(fname=output_fname, X=out, delimiter="")
                 print("testa output in file %s" % (output_fname))
 
