@@ -12,7 +12,7 @@ from conv_lstm_model import conv_lstm
 def regression_loss(reg_preds, reg_labels):
     rmse = tf.sqrt(tf.reduce_mean(tf.squared_difference(reg_labels, reg_preds)))
     tf.add_to_collection('losses', rmse)
-    return rmse
+    return rmse, tf.add_n(tf.get_collection("losses"), name="total_loss")
 
 
 def combind_loss(logits, labels, reg_preds, reg_labels):
@@ -52,25 +52,27 @@ def h5reader(fname, set_type):
 
 def train():
     # ===============configuration parameters=============
-    batch_size = 16
+    batch_size = 32
     time_step = 15
-    display_step = 1
-    n_epochs = 10
-    snap_step = 1000
+    display_step = 10
+    n_epochs = 1000
+    snap_step = 616
     start_lr = 0.0001
     lr_decay_step = 2000
     lr_decay_rate = 0.95
     n_class = 22
+    n_batch = 313
     dtype = tf.float32
     debug = False
     output = False
     finetuning = False
 
-    dirpath = ""
-    train_fname = ""
-    test_fname = ""
+    dirpath = "../result/conv_lstm_bs_32_channel_3_resampled_5_conv_2_fc"
+    train_fname = "../data/CIKM2017_train/train_Imp_3x3_del_height_no.4_classified.h5"
+    test_fname = "../data/CIKM2017_testA/testA_Imp_3x3_del_height_no.4.h5"
     checkpoint_dir = os.path.join(dirpath, "ckeckpoints")
     log_dir = os.path.join(dirpath, "logs")
+    output_dir = os.path.join(dirpath,"outputs")
 
     # get data
     train_set_x, train_set_y, train_set_c = h5reader(fname=train_fname, set_type="train")
@@ -79,8 +81,8 @@ def train():
     # some placeholders
     is_training = tf.placeholder_with_default(True, None)
     keep_prob = tf.placeholder(dtype=dtype, shape=None)
-    x = tf.placeholder(tf.float32, [batch_size, time_step, 80, 80, 3])
-    y_ = tf.placeholder(tf.float32, [batch_size, time_step, 1])
+    x = tf.placeholder(dtype=dtype, shape=[None, time_step, 80, 80, 3])
+    y_ = tf.placeholder(dtype=dtype, shape=[None, 1])
 
     # some tf training parameters
     with tf.variable_scope('step'):
@@ -90,29 +92,35 @@ def train():
     lr = tf.train.exponential_decay(start_lr, global_step, lr_decay_step, lr_decay_rate, staircase=True)
     tf.summary.scalar('learning_rate', lr)
 
-    # some ops
-    summary_op = tf.summary.merge_all()
-    init_op = tf.group(tf.global_variables_initializer(), tf.local_variables_initializer())
-
     # model
-    preds = conv_lstm(x, time_step, keep_prob)
+    preds, _ = conv_lstm(x, time_step, keep_prob, dtype)
 
     # Define loss and optimizer
-    loss = regression_loss(preds, y_)
-    train_op = tf.train.AdamOptimizer(learning_rate=lr).minimize(loss)
-    rmse = tf.reduce_mean(loss)
+    r_loss, total_loss = regression_loss(preds, y_)
+    train_op = tf.train.AdamOptimizer(learning_rate=lr).minimize(total_loss)
+    rmse = tf.reduce_mean(r_loss)
     # define saver
     saver = tf.train.Saver(var_list=tf.trainable_variables() + [global_step], max_to_keep=15)
 
+    summary_op = tf.summary.merge_all()
+    init_op = tf.group(tf.global_variables_initializer(), tf.local_variables_initializer())
     # create batch generator with random augmentations applied on-the-fly
     rng_aug_params = {'rotation_range': (-20, 20),
                       'translation_range': (-4, 4),
                       'do_flip_lr': True,
                       'do_flip_ud':True,
-                      'out_shape':(80, 80)}
+                      'output_shape':(80, 80)}
 
-    batch_generator = dtd.BatchGenerator(X=train_set_x,
-                                         y=train_set_y, rng_aug_params=rng_aug_params)
+    # train set data generator
+    datagen = dtd.BatchGenerator(X=train_set_x, y=train_set_y, rng_aug_params=rng_aug_params)
+
+    # resample the dataset
+    datagen.resample_dataset(train_set_c, "balanced")
+
+    testgen = dtd.BatchGenerator(X=test_set_x)
+
+    testgen.mean = datagen.mean
+    testgen.std = datagen.std
 
     # Session Config
     config = tf.ConfigProto()
@@ -123,8 +131,8 @@ def train():
             sess = tf_debug.LocalCLIDebugWrapperSession(sess)
             sess.add_tensor_filter("has_inf_or_nan", tf_debug.has_inf_or_nan)
 
-        train_writer = tf.summary.FileWriter(logdir=os.path.join(log_dir, "train"), graph=sess.graph)
         sess.run(init_op)
+        train_writer = tf.summary.FileWriter(logdir=os.path.join(log_dir, "train"), graph=sess.graph)
 
         # Load checkpoint
         checkpoint = tf.train.get_checkpoint_state(checkpoint_dir)
@@ -134,19 +142,34 @@ def train():
         else:
             print("Could not find old checkpoint")
 
-        for i in tqdm(range(n_epochs)):
-            for idx, batch in enumerate(batch_generator.get_batch(batch_size=batch_size, shuffle=True)):
-                l, _, summary_str = sess.run([loss, train_op, summary_op], feed_dict={x: batch[0], y_: batch[1], keep_prob: 0.5})
+        for i in range(n_epochs):
+            for idx, batch in enumerate(datagen.get_batch(batch_size=batch_size, shuffle=True)):
+                step_n = idx + 1 + i * n_batch
+                r_l, t_l, _, summary_str = sess.run([r_loss, total_loss, train_op, summary_op], feed_dict={x: batch[0], y_: batch[1], keep_prob: 0.5})
                 train_writer.add_summary(summary_str, global_step=idx*(i+1))
 
                 if idx % display_step == 0:
-                    print("... idx %d, epoch %d/%d, loss %g" %(idx, i+1, n_epochs, l))
+                    print("... idx %d, epoch %d/%d, rmse %g, total loss %g" %(idx, i+1, n_epochs, r_l, t_l))
 
-                if idx % snap_step == 0:
+                if step_n % snap_step == 0:
                     if not os.path.exists(checkpoint_dir):
                         os.mkdir(checkpoint_dir)
-                    saver.save(sess, checkpoint_dir + '/' + 'checkpoints', global_step=idx*(i+1))
+                    saver.save(sess, checkpoint_dir + '/' + 'checkpoints', global_step=(idx + i*n_batch))
                     print("Model save in file %s" % checkpoint_dir)
+
+                if step_n % lr_decay_step == 0:
+                    print("Learning rate decay, current learning rate:%g" % lr.eval())
+
+            if output:
+                out = []
+                for batch in testgen.get_batch(batch_size=batch_size):
+                    out.append(sess.run(preds, feed_dict={x:batch[0],keep_prob:1.0}))
+                output_fname = output_dir + "testa_epoch_%d/%d_" %(i+1, n_epochs) + ".csv"
+                np.savetxt(fname=output_fname, X=out, delimiter="")
+                print("testa output in file %s" % (output_fname))
 
             train_rmse = rmse.eval(feed_dict={x: batch[0], y_: batch[1], keep_prob: 1.0})
             print("... epoch %d/%d, training rmse %g" % (i + 1, n_epochs, train_rmse))
+
+if __name__ == "__main__":
+    train()

@@ -36,7 +36,7 @@ def _fully_connected(l_input, wsize, bsize, w_decay):
     return tf.matmul(l_input, w) + b
 
 
-def conv_lstm(input, time_step, dropout):
+def conv_lstm(input, time_step, dropout, dtype):
     # Prepare data shape to match `bidirectional_rnn` function requirements
     # Current data input shape: (batch_size, n_steps, n_input)
     # Required shape: 'n_steps' tensors list of shape (batch_size, n_input)
@@ -50,18 +50,18 @@ def conv_lstm(input, time_step, dropout):
     # Backward direction cell
     # lstm_bw_cell = rnn.BasicLSTMCell(n_hidden, forget_bias=1.0)
     # conv_lstm cell
-    shape = input.get_shape().as_list()[1:3]
+    shape = input.get_shape().as_list()[2:4]
     channel = input.get_shape().as_list()[-1]
     filter_n = 4 * channel
     kernel = [3, 3]
     layer_n = 2
 
     with tf.variable_scope("multi_layer_lstm"):
-        cell = ConvLSTMCell(shape=shape, filters=filter_n, kernel=kernel)
+        cell = ConvLSTMCell(shape=shape, filters=filter_n, kernel=kernel, initializer=tf.contrib.layers.xavier_initializer())
         multi_cells = MultiRNNCell([cell] * layer_n)
     # Get lstm cell output
 
-    outputs, final_state = static_rnn(multi_cells, x)
+    outputs, final_state = static_rnn(multi_cells, x, dtype=dtype)
 
     '''====================5 layer conv network====================='''
     with tf.variable_scope("out_conv1"):

@@ -84,7 +84,7 @@ def sample(trains):
     #new_labels = np.array(new_labels)
 
     #joblib.dump(value=new_datas,filename="../data/CIKM2017_train/train_Imp_3x3_resampled.pkl",compress=3)
-    return np.asarray(new_x,dtype=np.int16), np.asarray(new_label,dtype=np.float16), np.asarray(new_class,dtype=np.uint8)
+    return np.asarray(new_x,dtype=np.int16).transpose((0,1,3,4,2)), np.asarray(new_label,dtype=np.float16).reshape(-1,1), np.asarray(new_class,dtype=np.uint8).reshape(-1,1)
 
 def _int64_feature(value):
     return tf.train.Feature(int64_list=tf.train.Int64List(value=[value]))
@@ -167,16 +167,15 @@ def preprocessing(inputs, mean, std, is_train_set=False, only_calc_mean_std=Fals
         return datas
 def main():
     # Get the data.
-    #trains = joblib.load("../data/CIKM2017_train/train_Imp_3x3.pkl")
+    trains = joblib.load("../data/CIKM2017_train/train_Imp_3x3.pkl")
+    #testa_set = joblib.load("../data/CIKM2017_testA/testA_Imp_3x3_del_height_no.4.pkl")
+    #testa_x = []
 
-    testa_set = joblib.load("../data/CIKM2017_testA/testA_Imp_3x3.pkl")
-    testa_x = []
+    #for item in testa_set:
+    #    testa_x.append(item["input"])
 
-    for item in testa_set:
-        testa_x.append(item["input"])
-
-    testa_x = np.asarray(testa_x, dtype=np.int16)
-    #train_x, train_y, train_class = sample(trains)
+    #testa_x = np.asarray(testa_x, dtype=np.int16).transpose((0,1,3,4,2))
+    train_x, train_y, train_class = sample(trains)
     '''
     for i in range(10):
         np.random.shuffle(data_set)
@@ -195,14 +194,14 @@ def main():
         convert_to(testa_out, "testA_Imp_3x3_normalization_"+str(i)+"_fold", is_test=True)
     #joblib.dump(value=data_set, filename="../data/CIKM2017_train/train_Imp_3x3_classified_del_height_no.4.pkl",compress=3)
     '''
-    h5fname = "../data/CIKM2017_testA/testA_Imp_3x3_classified.h5"
+    h5fname = "../data/CIKM2017_train/train_Imp_3x3.h5"
     import h5py
     "write file"
     with h5py.File(h5fname, "w") as f:
-        f.create_dataset(name="testa_set_x", shape=testa_x.shape, data=testa_x, dtype=testa_x.dtype, compression="lzf", chunks=True)
-        #f.create_dataset(name="train_set_x", shape=train_x.shape, data=train_x, dtype=train_x.dtype, compression="lzf", chunks=True)
-        #f.create_dataset(name="train_set_y", shape=train_y.shape, data=train_y, dtype=train_y.dtype, compression="lzf", chunks=True)
-        #f.create_dataset(name="train_set_class", shape=train_class.shape, data=train_class, dtype=train_class.dtype, compression="lzf", chunks=True)
+        #f.create_dataset(name="testa_set_x", shape=testa_x.shape, data=testa_x, dtype=testa_x.dtype, compression="lzf", chunks=True)
+        f.create_dataset(name="train_set_x", shape=train_x.shape, data=train_x, dtype=train_x.dtype, compression="lzf", chunks=True)
+        f.create_dataset(name="train_set_y", shape=train_y.shape, data=train_y, dtype=train_y.dtype, compression="lzf", chunks=True)
+        f.create_dataset(name="train_set_class", shape=train_class.shape, data=train_class, dtype=train_class.dtype, compression="lzf", chunks=True)
 
     return
 if __name__ == "__main__":
