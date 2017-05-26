@@ -145,11 +145,14 @@ def train():
             print("Could not find old checkpoint")
 
         for i in range(n_epochs):
+            avg_rmse = 0
+            avg_total_loss = 0
             for idx, batch in enumerate(datagen.get_batch(batch_size=batch_size,buffer_size=1024,shuffle=True)):
                 step_n = idx + 1 + i * n_batch
                 r_l, t_l, _, summary_str = sess.run([r_loss, total_loss, train_op, summary_op], feed_dict={x: batch[0], y_: batch[1], keep_prob: 0.5})
                 train_writer.add_summary(summary_str, global_step=idx*(i+1))
-
+                avg_rmse += r_l
+                avg_total_loss += t_l
                 if idx % display_step == 0:
                     print("... idx %d, epoch %d/%d, rmse %g, total loss %g" %(idx, i+1, n_epochs, r_l, t_l))
 
@@ -162,6 +165,9 @@ def train():
                 if step_n % lr_decay_step == 0:
                     print("Learning rate decay, current learning rate:%g" % lr.eval())
 
+            avg_total_loss /= n_batch
+            avg_rmse /= n_batch
+
             if output:
                 print("===================output test result==================")
                 out = []
@@ -170,12 +176,12 @@ def train():
                 for batch in testgen.get_batch(batch_size=batch_size):
                     l_o = sess.run(preds, feed_dict={x:batch, keep_prob:1.0})
                     out.extend(l_o.astype("float16").reshape(-1).tolist())
-                output_fname = output_dir + "/testa_epoch_%d-%d_" %(i+1, n_epochs) + ".csv"
+                output_fname = output_dir + "/testa_epoch_%d-%d_rmse%g" %(i+1, n_epochs, avg_rmse) + ".csv"
                 np.savetxt(fname=output_fname, X=out, delimiter="")
                 print("testa output in file %s" % (output_fname))
 
-            train_rmse = rmse.eval(feed_dict={x: batch[0], y_: batch[1], keep_prob: 1.0})
-            print("... epoch %d/%d, training rmse %g" % (i + 1, n_epochs, train_rmse))
+            #train_rmse = rmse.eval(feed_dict={x: batch[0], y_: batch[1], keep_prob: 1.0})
+            print("... epoch %d/%d, training rmse %g, total_loss %g" % (i + 1, n_epochs, avg_rmse, avg_total_loss ))
 
 if __name__ == "__main__":
     train()
